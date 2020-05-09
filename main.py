@@ -13,12 +13,14 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import vgg
 
+# 读取vgg文件中的网络名字；__dict__为vgg类属性；islower()选择小写字母；name.startswith选择开头字母；callable选择可访问属性
 model_names = sorted(name for name in vgg.__dict__
     if name.islower() and not name.startswith("__")
                      and name.startswith("vgg")
                      and callable(vgg.__dict__[name]))
 
 
+# argparse.ArgumentParser控制输入参数；metavar作用与help信息输出；help作为输入提示；choices选择参数；default默认参数；type类型
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--arch', '-a', metavar='ARCH', default='vgg19',
                     choices=model_names,
@@ -60,13 +62,15 @@ best_prec1 = 0
 
 def main():
     global args, best_prec1
+    # 获取用户输入参数
     args = parser.parse_args()
 
 
-    # Check the save_dir exists or not
+    # 检查存储路径是否存在，如果不存在新建文件夹
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
+    # 获取用户选择的模型
     model = vgg.__dict__[args.arch]()
 
     model.features = torch.nn.DataParallel(model.features)
@@ -168,8 +172,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
         data_time.update(time.time() - end)
 
         if args.cpu == False:
-            input = input.cuda(async=True)
-            target = target.cuda(async=True)
+            input,target = input.cuda(),target.cuda() #原文为 input = input.cuda(async=True)。python3.7已移除async字段
+
         if args.half:
             input = input.half()
 
@@ -217,8 +221,7 @@ def validate(val_loader, model, criterion):
     end = time.time()
     for i, (input, target) in enumerate(val_loader):
         if args.cpu == False:
-            input = input.cuda(async=True)
-            target = target.cuda(async=True)
+            input,target = input.cuda(),target.cuda()
 
         if args.half:
             input = input.half()
