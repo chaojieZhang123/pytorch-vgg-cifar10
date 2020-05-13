@@ -12,6 +12,7 @@ __all__ = [
     'vgg19_bn', 'vgg19'
 ]
 
+# torch.nn.Module：所有模型的基类，VGG类也继承该类
 class VGG(nn.Module):
     '''ß
     VGG model 
@@ -20,7 +21,11 @@ class VGG(nn.Module):
         super(VGG, self).__init__()
         self.features = features
         self.classifier = nn.Sequential(
+            # torch.nn.Dropout(p=0.5, inplace=False)
+            # p:指置0的百分比
             nn.Dropout(),
+            # torch.nn.Linear(in_features, out_features, bias=True)：全链接层
+            # in_feature，out_features：输入输出神经元
             nn.Linear(512, 512),
             nn.ReLU(True),
             nn.Dropout(),
@@ -28,10 +33,14 @@ class VGG(nn.Module):
             nn.ReLU(True),
             nn.Linear(512, 10),
         )
-         # Initialize weights
+        # Initialize weights
+        # 权重初始化
+        # modules() ： 返回网络中所有模块的迭代器。
         for m in self.modules():
+            # isinstance：判断类型：判断m是否是conv2d
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                # 权重初始化为均值为0，方差为sqrt（2）
                 m.weight.data.normal_(0, math.sqrt(2. / n))
                 m.bias.data.zero_()
 

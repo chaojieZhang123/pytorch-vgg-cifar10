@@ -72,32 +72,67 @@ def main():
 
     # 获取用户选择的模型
     model = vgg.__dict__[args.arch]()
-
+    # 多gpu分布式训练：torch.nn.DataParallel(module, device_ids=None, output_device=None, dim=0)
+    # module (Module) – module to be parallelized
+    # device_ids (list of python:int or torch.device) – CUDA devices (default: all devices)
+    # output_device (int or torch.device) – device location of output (default: device_ids[0])
     model.features = torch.nn.DataParallel(model.features)
     if args.cpu:
+        # 使用cpu，将操作tensor放在cpu上
         model.cpu()
     else:
+        # 使用gpu，将操作tensor放在gpu上
         model.cuda()
 
     # optionally resume from a checkpoint
+    # 读取上次训练的检查节点
     if args.resume:
         if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
+            # torch.load 读取一个存储的map；map_location：重新指定map所在位置（cpu or gpu）
             checkpoint = torch.load(args.resume)
+            # 迭代次数、最佳预测结果更新
             args.start_epoch = checkpoint['epoch']
             best_prec1 = checkpoint['best_prec1']
+            # load_state_dict将导入的模型参数赋值到self中
             model.load_state_dict(checkpoint['state_dict'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.evaluate, checkpoint['epoch']))
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
+    # torch.backends.cudnn.benchmark=True ：
+    # 将会让程序在开始时花费一点额外时间，为整个网络的每个卷积层搜索最适合它的卷积实现算法，进而实现网络的加速。适用场景是网络结构固定。
     cudnn.benchmark = True
 
+    # torchvision.transforms.Normalize(mean, std)：输入图片预处理给定均值和方差（mean，std）,下面为三通道方式
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
+    # torch.utils.data.DataLoader：读取数据集（在这里是读取训练集）
+    # class torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False, sampler=None, num_workers=0,
+        # collate_fn=<function default_collate>, pin_memory=False, drop_last=False)
+    # dataset (Dataset) – 从中​​加载数据的数据集。
+    # batch_size (int, optional) – 批训练的数据个数(默认: 1)。
+    # shuffle (bool, optional) – 设置为True在每个epoch重新排列数据（默认值：False,一般打乱比较好）。
+    # **sampler (Sampler, optional) – 定义从数据集中提取样本的策略。如果指定，则忽略shuffle参数。
+    # num_workers (int, 可选) – 用于数据加载的子进程数。0表示数据将在主进程中加载​​（默认值：0）
+    # **collate_fn (callable, optional) – 合并样本列表以形成小批量。
+    # pin_memory (bool, optional) – 如果为True，数据加载器在返回前将张量复制到CUDA固定内存中。
+    # drop_last (bool, optional) – 如果数据集大小不能被batch_size整除，设置为True可删除最后一个不完整的批处理。如果设为False并且数据集的大小不能被batch_size整除，则最后一个batch将更小。(默认: False)
     train_loader = torch.utils.data.DataLoader(
+        # torchvision.datasets.CIFAR10(root, train=True, transform=None, target_transform=None, download=False)
+        # 读取数据集或从互联网下载数据集，这里采用CIFAR10，其他数据集的参数也一样
+        # cifar-10-batches-py的根目录
+        # train : true为训练集，false为测试集
+        # transform : 对PILimage的预处理函数
+            # transforms.Compose：transforms函数集合
+            # https://pytorch.org/docs/master/torchvision/transforms.html?highlight=transforms
+            # transforms.RandomHorizontalFlip(p=0.5)：p概率水平翻转
+            # torchvision.transforms.RandomCrop(size, padding=0)：随机中心点切取图片
+            # torchvision.transforms.ToTensor：将ndarray转换为张量tensor
+            # normalize：归一化
+            # download：允许下载
         datasets.CIFAR10(root='./data', train=True, transform=transforms.Compose([
             transforms.RandomHorizontalFlip(),
             transforms.RandomCrop(32, 4),
@@ -107,6 +142,7 @@ def main():
         batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, pin_memory=True)
 
+    # 读取验证集
     val_loader = torch.utils.data.DataLoader(
         datasets.CIFAR10(root='./data', train=False, transform=transforms.Compose([
             transforms.ToTensor(),
@@ -115,25 +151,36 @@ def main():
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
 
-    # define loss function (criterion) and pptimizer
+    # define loss function (criterion) and optimizer
+    # 定义损失函数和优化器（损失函数为交叉熵（CrossEntropyLoss），优化器为带momentum和weight_decay的随机梯度下降）
     criterion = nn.CrossEntropyLoss()
+    # 将损失函数放在cpu或者gpu上
     if args.cpu:
         criterion = criterion.cpu()
     else:
         criterion = criterion.cuda()
 
+    # 使用半精度 16-bit
     if args.half:
         model.half()
         criterion.half()
 
+    # torch.optim.SGD(params, lr=, momentum=0, dampening=0, weight_decay=0, nesterov=False)
+    # params：用于迭代优化的参数
+    # lr：learning rate
+    # momentum：动量因子
+    # weight_decay：l2范数因子
+    # nesterov：是否使用nesterov momentum
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
 
+    # 如果选择需要初始时validation？
     if args.evaluate:
         validate(val_loader, model, criterion)
         return
 
+    # 对于每个epoch循环
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch)
 
@@ -144,6 +191,7 @@ def main():
         prec1 = validate(val_loader, model, criterion)
 
         # remember best prec@1 and save checkpoint
+        # 如果当前epochs验证准确率最高，更新模型权重
         is_best = prec1 > best_prec1
         best_prec1 = max(prec1, best_prec1)
         save_checkpoint({
@@ -211,22 +259,31 @@ def validate(val_loader, model, criterion):
     """
     Run evaluation
     """
+
+    # batch_time：batch的运行时间
+    # losses：代价函数值
+    # top1：准确度
+    # AverageMeter：计算平均值、合、更新的工具类
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
 
     # switch to evaluate mode
+    # 更新到验证模式:相反则用torch.nn.train
     model.eval()
 
     end = time.time()
+    # 从验证集val_loader里获取图片input和标注target
     for i, (input, target) in enumerate(val_loader):
+        # 使用cpu or gpu
         if args.cpu == False:
             input,target = input.cuda(),target.cuda()
-
+        # 使用半精度 or not
         if args.half:
             input = input.half()
 
         # compute output
+        # 将推断函数包含在torch.no_grad()，表示不需要求导，加快运行速度
         with torch.no_grad():
             output = model(input)
             loss = criterion(output, target)
@@ -282,6 +339,7 @@ class AverageMeter(object):
 
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 2 every 30 epochs"""
+    # 学习率更新，每30epochs学习率更新为之前1/2
     lr = args.lr * (0.5 ** (epoch // 30))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
@@ -289,6 +347,7 @@ def adjust_learning_rate(optimizer, epoch):
 
 def accuracy(output, target, topk=(1,)):
     """Computes the precision@k for the specified values of k"""
+    # 求取准确度
     maxk = max(topk)
     batch_size = target.size(0)
 
